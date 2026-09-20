@@ -2,6 +2,7 @@
  * See gb_asset_loader.h.
  */
 #include "gb_asset_loader.h"
+#include "gb_filesystem.h"
 #include "gb_sha1.h"
 
 #include <errno.h>
@@ -36,14 +37,14 @@ static bool ensure_dir(const char* path) {
     for (char* p = buf + 1; *p; p++) {
         if (*p == '/') {
             *p = '\0';
-            if (mkdir(buf, 0755) != 0 && errno != EEXIST) {
+            if (gb_make_directory(buf) != 0) {
                 LOG("mkdir(%s) failed: %s", buf, strerror(errno));
                 return false;
             }
             *p = '/';
         }
     }
-    if (mkdir(buf, 0755) != 0 && errno != EEXIST) {
+    if (gb_make_directory(buf) != 0) {
         LOG("mkdir(%s) failed: %s", buf, strerror(errno));
         return false;
     }

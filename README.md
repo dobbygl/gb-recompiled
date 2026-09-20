@@ -833,6 +833,22 @@ python3 tools/compare_ground_truth.py roms/game.gb output/game --mgbdis /path/to
 
 ## Development
 
+Host filesystem operations use a C interface backed by C++17 `std::filesystem`,
+so runtime directory scans and directory creation do not require `dirent.h` on
+Windows. Narrow paths follow the host C library's filename encoding. POSIX
+creation retains mode 0755. The independent tests need no SDL, ROM, or network:
+
+```bash
+cmake -S runtime/tests/portability -B build/portability -G Ninja
+cmake --build build/portability
+ctest --test-dir build/portability --output-on-failure
+```
+
+`Host portability` runs these tests on Linux and Windows/MSVC. This validates
+the filesystem layer only: the runtime's Winsock/thread integration and GLES2
+backend still need Windows validation before the full runtime is portable.
+
+
 ### Project Architecture
 
 The recompiler uses a multi-stage pipeline:

@@ -196,3 +196,11 @@ Update `AGENTS.md` too if the change affects how future agents should work in th
 - Prefer a representative larger generated project under `output/` for heavier validation and benchmark checks.
 - Prefer `logs/` for anything you may want to inspect later.
 - Prefer existing tools in `tools/` over one-off scripts when the repo already has the needed workflow.
+
+## Host portability checks
+
+When changing `gb_filesystem.h`, `gb_filesystem.cpp`, or their C callers, also
+configure `runtime/tests/portability` with CMake + Ninja and run its CTest suite.
+This standalone C++17 test project runs on Linux and Windows without SDL or a
+ROM. It complements the generated-project sync workflow; passing it alone does
+not prove that networking or the GLES runtime builds on Windows.

@@ -21,7 +21,7 @@
 #include "gb_printer.h"
 #include "gbrt.h"
 
-#include <dirent.h>
+#include "gb_filesystem.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -124,7 +124,7 @@ uint32_t gb_printer_print_count(const GBPrinter* p) {
 static void ensure_output_dir(GBPrinter* p) {
     if (!p->output_dir[0]) return;
     /* mkdir is racy but harmless — EEXIST is fine. */
-    mkdir(p->output_dir, 0755);
+    gb_make_directory(p->output_dir);
 }
 
 /* Find the highest existing <prefix>_<NNNN>.png index in output_dir so
@@ -134,14 +134,13 @@ static void resolve_next_index(GBPrinter* p) {
     p->next_index = 1;
     p->index_resolved = true;
 
-    DIR* dir = opendir(p->output_dir);
+    GBDirectory* dir = gb_directory_open(p->output_dir);
     if (!dir) return;
 
     size_t prefix_len = strlen(p->output_prefix);
-    struct dirent* ent;
+    const char* name;
     uint32_t highest = 0;
-    while ((ent = readdir(dir))) {
-        const char* name = ent->d_name;
+    while ((name = gb_directory_next(dir))) {
         if (strncmp(name, p->output_prefix, prefix_len) != 0) continue;
         if (name[prefix_len] != '_') continue;
         const char* num = name + prefix_len + 1;
@@ -151,7 +150,7 @@ static void resolve_next_index(GBPrinter* p) {
         if (strcmp(endp, ".png") != 0) continue;
         if (val > highest) highest = (uint32_t)val;
     }
-    closedir(dir);
+    gb_directory_close(dir);
     p->next_index = highest + 1;
 }
 

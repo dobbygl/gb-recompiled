@@ -23,6 +23,7 @@ add_library(gbrt STATIC
     src/relay_client.c
     src/shader_pipeline.cpp
     src/gb_printer.c
+    src/gb_filesystem.cpp
     src/gb_asset_loader.c
     src/gb_sha1.c
     src/gb_sha256.c

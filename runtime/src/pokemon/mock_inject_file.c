@@ -8,7 +8,7 @@
 #include "pokemon/mock_gen2.h"
 
 #include <ctype.h>
-#include <dirent.h>
+#include "gb_filesystem.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -207,28 +207,28 @@ int gb_inject_file_scan(const GBContext* ctx, const char* game_id,
     char dir_path[512];
     snprintf(dir_path, sizeof(dir_path), "injects/%s", game_id);
 
-    DIR* d = opendir(dir_path);
+    GBDirectory* d = gb_directory_open(dir_path);
     if (!d) return 0;
 
     int count = 0;
-    struct dirent* ent;
-    while (count < max && (ent = readdir(d)) != NULL) {
-        if (ext_length(ent->d_name) == 0) continue;
+    const char* name;
+    while (count < max && (name = gb_directory_next(d)) != NULL) {
+        if (ext_length(name) == 0) continue;
 
         /* .pkm is gen-agnostic so it shows on both. Binaries are
          * gen-specific by their nature, so filter them. */
-        if (file_has_ext(ent->d_name, ".pk1") && !cart_is_gen1) continue;
-        if (file_has_ext(ent->d_name, ".pk2") && !cart_is_gen2) continue;
+        if (file_has_ext(name, ".pk1") && !cart_is_gen1) continue;
+        if (file_has_ext(name, ".pk2") && !cart_is_gen2) continue;
 
         GBInjectFileEntry* e = &out[count];
-        snprintf(e->filename, sizeof(e->filename), "%s", ent->d_name);
+        snprintf(e->filename, sizeof(e->filename), "%s", name);
         snprintf(e->full_path, sizeof(e->full_path),
-                 "%s/%s", dir_path, ent->d_name);
-        build_display(ctx, ent->d_name, e->full_path,
+                 "%s/%s", dir_path, name);
+        build_display(ctx, name, e->full_path,
                       e->display, sizeof(e->display));
         count++;
     }
-    closedir(d);
+    gb_directory_close(d);
     return count;
 }
 

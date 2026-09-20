@@ -18,7 +18,7 @@
 #include "cheats.h"
 
 #include <ctype.h>
-#include <dirent.h>
+#include "gb_filesystem.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -246,22 +246,22 @@ int gb_cheats_load(const char* game_id) {
 
     char dir[512];
     snprintf(dir, sizeof(dir), "cheats/%s", game_id);
-    DIR* d = opendir(dir);
+    GBDirectory* d = gb_directory_open(dir);
     if (!d) return -1;
-    struct dirent* ent;
-    while ((ent = readdir(d)) != NULL) {
-        size_t nl = strlen(ent->d_name);
+    const char* name;
+    while ((name = gb_directory_next(d)) != NULL) {
+        size_t nl = strlen(name);
         if (nl < 4) continue;
-        const char* ext = ent->d_name + nl - 4;
+        const char* ext = name + nl - 4;
         bool is_cht = (ext[0]=='.' && (ext[1]=='c'||ext[1]=='C')
                                    && (ext[2]=='h'||ext[2]=='H')
                                    && (ext[3]=='t'||ext[3]=='T'));
         if (!is_cht) continue;
         char path[1024];
-        snprintf(path, sizeof(path), "%s/%s", dir, ent->d_name);
+        snprintf(path, sizeof(path), "%s/%s", dir, name);
         parse_cht_file(path);
     }
-    closedir(d);
+    gb_directory_close(d);
 
     /* Discard trailing empty entries that came from index-only
      * lines (e.g. a stray `cheat999_enable=false` past the last
