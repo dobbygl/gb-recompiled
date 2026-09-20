@@ -49,6 +49,9 @@ endif()
 
 option(GBRT_PRESENTATION_TESTS "Build SDL presentation API contract tests" OFF)
 if(GBRT_PRESENTATION_TESTS)
+    if(NOT SDL2_FOUND)
+        message(FATAL_ERROR "Presentation contract tests require SDL2")
+    endif()
     enable_testing()
 endif()
 

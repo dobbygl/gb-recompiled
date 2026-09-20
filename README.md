@@ -35,14 +35,13 @@ Everything below is built on top of upstream `arcanite24/gb-recompiled`. Most ar
 
 ### Presentation extension API (version 1)
 
-**Work-in-progress checkpoint (2026-09-20):** the API, runtime and procedural
-contract test compile, as do generated procedural-game builds against this
-fork and the pinned original runtime. Execution comparisons and the contract
-CTest have not yet been run. Before running the latter, correct its savestate
-cleanup: SDL stores `game.state1` beside the executable, while the test currently
-removes it relative to its working directory. Use the same private output and
-working directory for the test. No `presentation-api-v1` tag or upstream PR is
-published yet; Windows validation is also pending.
+The Linux contract test passes with software Mesa: callback order, version
+rejection, full-drawable fallback after a failed renderer, input recording,
+key release, and successful/failed savestate notifications. Each test frame
+checks WRAM, VRAM, cartridge RAM and both input/guest framebuffers. A generated
+procedural cartridge produces identical guest captures with and without this
+runtime change; a separate GL surface probe also matches the pinned original
+runtime byte for byte. Windows validation and the upstream PR remain pending.
 
 SDL clients can register `GBPresentationHooks` from
 `runtime/include/gb_presentation.h` before `gb_platform_init`. Set

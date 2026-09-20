@@ -155,6 +155,8 @@ endif()
 if(GBRT_PRESENTATION_TESTS AND SDL2_FOUND)
     add_executable(gb_presentation_test tests/presentation_test.cpp)
     target_link_libraries(gb_presentation_test PRIVATE gbrt)
+    set_target_properties(gb_presentation_test PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/qa/presentation-tests")
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/qa/presentation-tests")
     add_test(NAME presentation_api COMMAND gb_presentation_test)
     set_tests_properties(presentation_api PROPERTIES

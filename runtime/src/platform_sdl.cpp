@@ -2783,9 +2783,19 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
     const bool presented = g_presentation.frame &&
         g_presentation.frame(g_registered_ctx, draw_w, draw_h, g_show_menu);
     if (presentation_covers && !presented) {
+        // A failed extension may have left partial content and GL state behind.
+        // Restore the whole drawable, including the ordinary letterbox bars.
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glActiveTexture(GL_TEXTURE0);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_SCISSOR_TEST);
+        glDisable(GL_CULL_FACE);
         glViewport(0, 0, draw_w, draw_h);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         upload_lcd();
         draw_lcd();
     }

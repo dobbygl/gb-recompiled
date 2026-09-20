@@ -24,6 +24,10 @@ bool begin(GBContext*,bool,const uint32_t*) {calls+='B';return predict;}
 bool frame(GBContext*,int w,int h,bool) {
     calls+='F';
     if(cover||predict){glViewport(0,0,w,h);glClearColor(.8f,.1f,.4f,1);glClear(GL_COLOR_BUFFER_BIT);}
+    if(predict&&!cover) {
+        glEnable(GL_DEPTH_TEST);glEnable(GL_SCISSOR_TEST);glScissor(0,0,1,1);
+        glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);glActiveTexture(GL_TEXTURE1);
+    }
     return cover;
 }
 bool event(const SDL_Event* e,bool) {
@@ -45,9 +49,14 @@ std::vector<uint8_t> surface() {
 int main(int argc,char** argv) {
     GBConfig config{};config.model=GB_MODEL_DMG;config.speed_percent=100;
     GBContext* ctx=gb_context_create(&config);require(ctx!=nullptr,"context allocation");
+    // Procedural cartridge, with RAM but no battery or commercial header data.
+    std::array<uint8_t,32768> rom{};rom[0x147]=2;rom[0x149]=2;
+    require(gb_context_load_rom(ctx,rom.data(),rom.size()),"procedural cartridge load");
+    require(ctx->eram_size==8192,"cartridge RAM participates in render invariants");
     std::array<uint32_t,160*144> lcd{};
     for(int y=0;y<144;y++)for(int x=0;x<160;x++)lcd[y*160+x]=0xff000000u|uint32_t(x*255/159)<<16|uint32_t(y*255/143)<<8|uint32_t((x^y)&255);
     require(gb_platform_init(2),"SDL initialization");gb_platform_register_context(ctx);
+    SDL_SetWindowSize(SDL_GL_GetCurrentWindow(),480,320);gb_platform_poll_events(ctx);
     gb_platform_render_frame(lcd.data());auto baseline=surface();require(!baseline.empty(),"ordinary LCD surface");
     if(argc==2) {FILE* out=std::fopen(argv[1],"wb");require(out,"surface export");std::fwrite(baseline.data(),1,baseline.size(),out);std::fclose(out);}
     size_t varied=0;for(size_t i=4;i<baseline.size();i+=4)if(std::memcmp(baseline.data()+i,baseline.data(),3))++varied;
@@ -61,15 +70,27 @@ int main(int argc,char** argv) {
     bad=hooks;--bad.struct_size;require(!gb_platform_set_presentation(&bad),"wrong size rejected");
     calls.clear();require(gb_platform_init(2),"SDL extension initialization");gb_platform_register_context(ctx);
     require(calls=="A","attributes precede any drawing");
-    std::vector<uint8_t> wram(ctx->wram,ctx->wram+32768),vram(ctx->vram,ctx->vram+16384);
-    auto original_lcd=lcd;
-    calls.clear();gb_platform_render_frame(lcd.data());
-    require(!std::memcmp(wram.data(),ctx->wram,wram.size())&&!std::memcmp(vram.data(),ctx->vram,vram.size())&&lcd==original_lcd,"presentation leaves guest memory and input framebuffer intact");
+    SDL_SetWindowSize(SDL_GL_GetCurrentWindow(),480,320);gb_platform_poll_events(ctx);
+    auto render_checked=[&](bool host_only=false) {
+        std::vector<uint8_t> wram(ctx->wram,ctx->wram+32768),vram(ctx->vram,ctx->vram+16384);
+        std::vector<uint8_t> eram(ctx->eram,ctx->eram+ctx->eram_size);
+        const uint32_t* fb=gb_get_framebuffer(ctx);
+        std::vector<uint32_t> guest(fb,fb+160*144);
+        auto original_lcd=lcd;
+        if(host_only)gb_platform_present_framebuffer(lcd.data());
+        else gb_platform_render_frame(lcd.data());
+        require(!std::memcmp(wram.data(),ctx->wram,wram.size())&&
+            !std::memcmp(vram.data(),ctx->vram,vram.size())&&
+            !std::memcmp(eram.data(),ctx->eram,eram.size())&&
+            !std::memcmp(guest.data(),gb_get_framebuffer(ctx),guest.size()*sizeof(uint32_t))&&
+            lcd==original_lcd,"every presentation preserves WRAM, VRAM, cartridge RAM and both framebuffers");
+    };
+    calls.clear();render_checked();
     require(calls=="BFC","begin, draw, capture order");
     require(captured==baseline,"non-covering extension keeps every original LCD pixel");
-    predict=true;cover=false;calls.clear();gb_platform_render_frame(lcd.data());
+    predict=true;cover=false;calls.clear();render_checked();
     require(calls=="BFC"&&captured==baseline,"failed cover restores original LCD on the same frame");
-    cover=true;calls.clear();gb_platform_present_framebuffer(lcd.data());
+    cover=true;calls.clear();render_checked(true);
     require(calls=="BFC"&&captured!=baseline,"host-only presentation receives all hooks and covers LCD");
     SDL_Event key{};key.type=SDL_KEYDOWN;key.key.keysym.scancode=SDL_SCANCODE_F2;key.key.keysym.sym=SDLK_F2;
     require(SDL_PushEvent(&key)==1&&gb_platform_poll_events(ctx),"event polling");require(consumed==1,"presentation consumes event once");
