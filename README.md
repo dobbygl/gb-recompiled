@@ -33,6 +33,64 @@ Everything below is built on top of upstream `arcanite24/gb-recompiled`. Most ar
 - **GLES 2.0 rendering backend** with a built-in post-process shader pipeline. One binary covers desktop Mesa, Mali, Adreno — same shaders run everywhere.
 - **Shipped shader presets** (sharp / scanlines / CRT-like effects) selectable from the Esc menu's Look section. Per-game shader preference stays sticky once set.
 
+### Presentation extension API (version 1)
+
+**Work-in-progress checkpoint (2026-09-20):** the API, runtime and procedural
+contract test compile, as do generated procedural-game builds against this
+fork and the pinned original runtime. Execution comparisons and the contract
+CTest have not yet been run. Before running the latter, correct its savestate
+cleanup: SDL stores `game.state1` beside the executable, while the test currently
+removes it relative to its working directory. Use the same private output and
+working directory for the test. No `presentation-api-v1` tag or upstream PR is
+published yet; Windows validation is also pending.
+
+SDL clients can register `GBPresentationHooks` from
+`runtime/include/gb_presentation.h` before `gb_platform_init`. Set
+`api_version = GB_PRESENTATION_API_VERSION` (currently **1**) and
+`struct_size = sizeof(GBPresentationHooks)`; registration copies the structure
+and rejects incompatible versions/sizes without replacing the current hooks.
+A null registration restores the ordinary frontend.
+
+Callbacks run on the frontend thread in this order:
+
+1. `gl_attributes` after default attributes, before GL context creation.
+2. `input_poll` before manual/script/external joypad channels are combined;
+   `event` can consume events before the game's bindings see them.
+3. `begin_frame` before LCD upload, then `frame` after `ImGui::NewFrame`,
+   then the frontend settings UI and ImGui rendering.
+4. `before_swap` for final composition/capture, immediately before swap.
+5. `shutdown` while GL is still current. A successful explicit frontend
+   savestate load additionally invokes `state_loaded`.
+
+`begin_frame` can predict full coverage to skip the LCD upload/draw. If
+`frame` returns false after that prediction, the frontend restores the
+ordinary LCD image in the same frame. Omitting callbacks preserves the
+ordinary path. Guest frames and host-only paused/loading presents use the
+same callbacks; the supplied framebuffer is the one being presented, which
+can differ from the guest PPU's current buffer during LCD-off transitions.
+Treat guest memory as read-only. Do not retain a context beyond its lifetime.
+
+`gb_platform_set_external_dpad` adds an independent active-low input channel
+(`0xff` releases it), combined with manual and scripted input. Recordings
+include this channel. `gb_platform_release_keys` clears only the specified
+keyboard bindings when a presentation changes its control mode. It leaves
+scripts and controllers intact. Registration and frontend shutdown release
+the external channel.
+
+The procedural example/test in `runtime/tests/presentation_test.cpp` covers
+callback order, API rejection, fallback pixels, events, channel composition,
+key release and recording, without a commercial ROM:
+
+```sh
+cmake -S . -B build -G Ninja -DGBRT_PRESENTATION_TESTS=ON
+cmake --build build --target gb_presentation_test
+ctest --test-dir build -R presentation_api --output-on-failure
+```
+
+It requires SDL's offscreen driver and software Mesa. Failures to create the
+GL context fail the test explicitly, so missing rendering coverage cannot be
+reported as a pass.
+
 ### Per-game UX
 - **Per-game preferences** — palette, shader, SGB toggles, custom border, hardware mode (DMG/SGB/CGB/AUTO). Globals act as defaults; overrides save per game ID.
 - **Custom SGB borders** — drop 256x224 PNGs into `borders/` next to the binary; cycle from the Esc menu.

@@ -151,3 +151,13 @@ if(SDL2_FOUND)
         endif()
     endif()
 endif()
+
+if(GBRT_PRESENTATION_TESTS AND SDL2_FOUND)
+    add_executable(gb_presentation_test tests/presentation_test.cpp)
+    target_link_libraries(gb_presentation_test PRIVATE gbrt)
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/qa/presentation-tests")
+    add_test(NAME presentation_api COMMAND gb_presentation_test)
+    set_tests_properties(presentation_api PROPERTIES
+        WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/qa/presentation-tests"
+        ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;LIBGL_ALWAYS_SOFTWARE=1")
+endif()

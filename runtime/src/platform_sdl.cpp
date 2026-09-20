@@ -4,6 +4,7 @@
  */
 
 #include "platform_sdl.h"
+#include "gb_presentation.h"
 #include "gbrt.h"   /* For GBPlatformCallbacks */
 #include "ppu.h"
 #include "audio_stats.h"
@@ -426,6 +427,8 @@ static uint8_t g_manual_joypad_buttons = 0xFF;
 static uint8_t g_manual_joypad_dpad = 0xFF;
 static uint8_t g_script_joypad_buttons = 0xFF;
 static uint8_t g_script_joypad_dpad = 0xFF;
+static uint8_t g_external_joypad_dpad = 0xFF;
+static GBPresentationHooks g_presentation = {};
 
 /* ============================================================================
  * Automation State
@@ -1564,7 +1567,30 @@ static void rebuild_manual_joypad_state_from_bindings(void) {
     if (input_action_is_pressed(GB_INPUT_ACTION_START)) g_manual_joypad_buttons &= (uint8_t)~0x08;
 }
 
+bool gb_platform_set_presentation(const GBPresentationHooks* hooks) {
+    if (hooks && (hooks->api_version != GB_PRESENTATION_API_VERSION ||
+                  hooks->struct_size != sizeof(GBPresentationHooks))) return false;
+    if (g_gl_context && g_presentation.shutdown) g_presentation.shutdown();
+    g_presentation = hooks ? *hooks : GBPresentationHooks{};
+    g_external_joypad_dpad = 0xFF;
+    return true;
+}
+
+void gb_platform_set_external_dpad(uint8_t mask) {
+    g_external_joypad_dpad = mask;
+}
+
+void gb_platform_release_keys(const SDL_Scancode* scancodes, size_t count) {
+    if (!scancodes) return;
+    for (int action = 0; action < GB_INPUT_ACTION_COUNT; ++action)
+        for (int slot = 0; slot < 2; ++slot)
+            for (size_t key = 0; key < count; ++key)
+                if (binding_matches_scancode(g_keyboard_bindings[action][slot], scancodes[key]))
+                    g_keyboard_binding_pressed[action][slot] = false;
+}
+
 static void update_effective_joypad_state(void) {
+    if (g_presentation.input_poll) g_presentation.input_poll(g_registered_ctx, g_show_menu);
     rebuild_manual_joypad_state_from_bindings();
     /* While the in-game menu is up, hide all joypad activity from the
      * cart. The game keeps running (so NPCs walk, music plays, RTC
@@ -1576,7 +1602,7 @@ static void update_effective_joypad_state(void) {
         g_joypad_buttons = 0xFF;
         return;
     }
-    g_joypad_dpad = g_manual_joypad_dpad & g_script_joypad_dpad;
+    g_joypad_dpad = g_manual_joypad_dpad & g_script_joypad_dpad & g_external_joypad_dpad;
     g_joypad_buttons = g_manual_joypad_buttons & g_script_joypad_buttons;
 }
 
@@ -1713,12 +1739,12 @@ static void record_manual_input_state(uint64_t cycle_count) {
         g_input_record_has_segment = true;
         g_input_record_start_cycle = cycle_count;
         g_input_record_end_cycle = cycle_count;
-        g_input_record_dpad = g_manual_joypad_dpad;
+        g_input_record_dpad = g_manual_joypad_dpad & g_external_joypad_dpad;
         g_input_record_buttons = g_manual_joypad_buttons;
         return;
     }
 
-    if (g_input_record_dpad == g_manual_joypad_dpad && g_input_record_buttons == g_manual_joypad_buttons) {
+    if (g_input_record_dpad == (g_manual_joypad_dpad & g_external_joypad_dpad) && g_input_record_buttons == g_manual_joypad_buttons) {
         g_input_record_end_cycle = cycle_count;
         return;
     }
@@ -1728,7 +1754,7 @@ static void record_manual_input_state(uint64_t cycle_count) {
     g_input_record_has_segment = true;
     g_input_record_start_cycle = cycle_count;
     g_input_record_end_cycle = cycle_count;
-    g_input_record_dpad = g_manual_joypad_dpad;
+    g_input_record_dpad = g_manual_joypad_dpad & g_external_joypad_dpad;
     g_input_record_buttons = g_manual_joypad_buttons;
 }
 
@@ -1740,10 +1766,10 @@ void gb_platform_set_input_script(const char* script) {
     update_effective_joypad_state();
 
     if (!script) return;
-    
+
     char* copy = strdup(script);
     char* token = strtok(copy, ",");
-    
+
     while (token && g_script_count < MAX_SCRIPT_ENTRIES) {
         char btn_buf[16] = {0};
         ScriptEntry parsed = {};
@@ -1829,9 +1855,9 @@ static void save_ppm(const char* filename, const uint32_t* fb, int width, int he
 
     FILE* f = fopen(resolved_filename.c_str(), "wb");
     if (!f) return;
-    
+
     fprintf(f, "P6\n%d %d\n255\n", width, height);
-    
+
     uint8_t* row = (uint8_t*)malloc(width * 3);
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
@@ -1842,7 +1868,7 @@ static void save_ppm(const char* filename, const uint32_t* fb, int width, int he
         }
         fwrite(row, 1, width * 3, f);
     }
-    
+
     free(row);
     fclose(f);
     printf("[AUTO] Saved screenshot: %s\n", resolved_filename.c_str());
@@ -2608,74 +2634,79 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
      * override (Original / Pocket / Plasma) is applied during the same
      * pass since we're touching every pixel anyway. */
     double upload_start_ms = sdl_now_ms();
-    static uint32_t s_upload_buf[GB_FRAMEBUFFER_SIZE];
-    {
-        const uint32_t* src = framebuffer;
-        /* Match the actual post-conversion DMG-green values produced by
-         * ppu.c's rgb555_to_rgba (which uses *255/31 with integer
-         * truncation), not the dmg_palette_rgba constants — those are
-         * only used directly on the very first reset frame, every other
-         * frame goes through the rgb555 round-trip and lands a few LSBs
-         * away. Comparing against the wrong constants made the palette
-         * dropdown a silent no-op. */
-        const uint32_t orig[4] = { 0xFFE6F6CDu, 0xFF73BD62u, 0xFF319C52u, 0xFF081010u };
-        const uint32_t* pal = (g_palette_idx == 0) ? NULL : g_palettes[g_palette_idx];
+    const bool presentation_covers = g_presentation.begin_frame &&
+        g_presentation.begin_frame(g_registered_ctx, g_show_menu, framebuffer);
+    auto upload_lcd = [&]() {
+        static uint32_t s_upload_buf[GB_FRAMEBUFFER_SIZE];
+        {
+            const uint32_t* src = framebuffer;
+            /* Match the actual post-conversion DMG-green values produced by
+             * ppu.c's rgb555_to_rgba (which uses *255/31 with integer
+             * truncation), not the dmg_palette_rgba constants — those are
+             * only used directly on the very first reset frame, every other
+             * frame goes through the rgb555 round-trip and lands a few LSBs
+             * away. Comparing against the wrong constants made the palette
+             * dropdown a silent no-op. */
+            const uint32_t orig[4] = { 0xFFE6F6CDu, 0xFF73BD62u, 0xFF319C52u, 0xFF081010u };
+            const uint32_t* pal = (g_palette_idx == 0) ? NULL : g_palettes[g_palette_idx];
 
-        /* Color correction matrices applied per-pixel.
-         *
-         *   GBC mode: viewing original-CGB-cartridge output on a modern
-         *   sRGB display. Real CGB LCDs had crushed saturation; the cart
-         *   art was tuned for that. Modern displays show those values
-         *   too vibrantly, so we desaturate slightly.
-         *
-         *   GBA mode: the AGB LCD was darker and bluer than the CGB
-         *   LCD. Games shipped for GBC look oversaturated on a real
-         *   GBA. This matrix gives the on-GBA look back. From mGBA's
-         *   GBA color correction; gamma is approximated as a linear
-         *   scale to keep this in integer math.
-         *
-         * Both matrices are normalized so the [0..255] output range
-         * stays in bounds. Coefficients * 1024 to fit uint16 multiply. */
-        static const int16_t cc_gbc[9] = {
-            /*  R from R,G,B   G from R,G,B   B from R,G,B */
-              893, 123,   8,    102,  840,  82,    102,  133,  789,
-        };
-        static const int16_t cc_gba[9] = {
-              860, 169,  -5,     92,  676, 256,     92,  261,  671,
-        };
-        const int16_t* cc = (g_color_correction == 1) ? cc_gbc :
-                            (g_color_correction == 2) ? cc_gba : NULL;
+            /* Color correction matrices applied per-pixel.
+             *
+             *   GBC mode: viewing original-CGB-cartridge output on a modern
+             *   sRGB display. Real CGB LCDs had crushed saturation; the cart
+             *   art was tuned for that. Modern displays show those values
+             *   too vibrantly, so we desaturate slightly.
+             *
+             *   GBA mode: the AGB LCD was darker and bluer than the CGB
+             *   LCD. Games shipped for GBC look oversaturated on a real
+             *   GBA. This matrix gives the on-GBA look back. From mGBA's
+             *   GBA color correction; gamma is approximated as a linear
+             *   scale to keep this in integer math.
+             *
+             * Both matrices are normalized so the [0..255] output range
+             * stays in bounds. Coefficients * 1024 to fit uint16 multiply. */
+            static const int16_t cc_gbc[9] = {
+                /*  R from R,G,B   G from R,G,B   B from R,G,B */
+                  893, 123,   8,    102,  840,  82,    102,  133,  789,
+            };
+            static const int16_t cc_gba[9] = {
+                  860, 169,  -5,     92,  676, 256,     92,  261,  671,
+            };
+            const int16_t* cc = (g_color_correction == 1) ? cc_gbc :
+                                (g_color_correction == 2) ? cc_gba : NULL;
 
-        for (int i = 0; i < GB_SCREEN_WIDTH * GB_SCREEN_HEIGHT; i++) {
-            uint32_t c = src[i];
-            if (pal) {
-                if      (c == orig[0]) c = pal[0];
-                else if (c == orig[1]) c = pal[1];
-                else if (c == orig[2]) c = pal[2];
-                else if (c == orig[3]) c = pal[3];
+            for (int i = 0; i < GB_SCREEN_WIDTH * GB_SCREEN_HEIGHT; i++) {
+                uint32_t c = src[i];
+                if (pal) {
+                    if      (c == orig[0]) c = pal[0];
+                    else if (c == orig[1]) c = pal[1];
+                    else if (c == orig[2]) c = pal[2];
+                    else if (c == orig[3]) c = pal[3];
+                }
+                uint32_t a = c & 0xFF000000u;
+                uint32_t r = (c >> 16) & 0xFFu;
+                uint32_t g = (c >>  8) & 0xFFu;
+                uint32_t b =  c        & 0xFFu;
+                if (cc) {
+                    int rn = ((int)r * cc[0] + (int)g * cc[1] + (int)b * cc[2]) >> 10;
+                    int gn = ((int)r * cc[3] + (int)g * cc[4] + (int)b * cc[5]) >> 10;
+                    int bn = ((int)r * cc[6] + (int)g * cc[7] + (int)b * cc[8]) >> 10;
+                    if (rn < 0) rn = 0; else if (rn > 255) rn = 255;
+                    if (gn < 0) gn = 0; else if (gn > 255) gn = 255;
+                    if (bn < 0) bn = 0; else if (bn > 255) bn = 255;
+                    r = (uint32_t)rn; g = (uint32_t)gn; b = (uint32_t)bn;
+                }
+                /* ARGB → RGBA: swap R<->B, keep G and A. */
+                s_upload_buf[i] = a | (b << 16) | (g << 8) | r;
             }
-            uint32_t a = c & 0xFF000000u;
-            uint32_t r = (c >> 16) & 0xFFu;
-            uint32_t g = (c >>  8) & 0xFFu;
-            uint32_t b =  c        & 0xFFu;
-            if (cc) {
-                int rn = ((int)r * cc[0] + (int)g * cc[1] + (int)b * cc[2]) >> 10;
-                int gn = ((int)r * cc[3] + (int)g * cc[4] + (int)b * cc[5]) >> 10;
-                int bn = ((int)r * cc[6] + (int)g * cc[7] + (int)b * cc[8]) >> 10;
-                if (rn < 0) rn = 0; else if (rn > 255) rn = 255;
-                if (gn < 0) gn = 0; else if (gn > 255) gn = 255;
-                if (bn < 0) bn = 0; else if (bn > 255) bn = 255;
-                r = (uint32_t)rn; g = (uint32_t)gn; b = (uint32_t)bn;
-            }
-            /* ARGB → RGBA: swap R<->B, keep G and A. */
-            s_upload_buf[i] = a | (b << 16) | (g << 8) | r;
         }
-    }
-    glBindTexture(GL_TEXTURE_2D, g_game_tex);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
-                    GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT,
-                    GL_RGBA, GL_UNSIGNED_BYTE, s_upload_buf);
-    glBindTexture(GL_TEXTURE_2D, 0);
+        glBindTexture(GL_TEXTURE_2D, g_game_tex);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
+                        GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT,
+                        GL_RGBA, GL_UNSIGNED_BYTE, s_upload_buf);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    };
+    if (!presentation_covers) upload_lcd();
     g_last_timing.upload_ms = sdl_now_ms() - upload_start_ms;
 
     /* Clear + compose. */
@@ -2707,45 +2738,57 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
     int vp_w = (int)(g_game_viewport.w * dpr_x);
     int vp_h = (int)(g_game_viewport.h * dpr_y);
 
-    if (g_shader_pipeline) {
-        const int active_shader = gb_shader_pipeline_active(g_shader_pipeline);
-        if (active_border) {
-            /* Border is always drawn with the passthrough "sharp" shader
-             * — the user-selected effect applies to the game pixels
-             * only, which is the visually-right thing for an LCD-style
-             * filter. */
-            gb_shader_pipeline_set_active_by_name(g_shader_pipeline, "sharp");
-            gb_shader_pipeline_draw(g_shader_pipeline,
-                                    active_border,
-                                    GB_BORDER_FULL_W, GB_BORDER_FULL_H,
-                                    vp_x, vp_y, vp_w, vp_h,
-                                    draw_w, draw_h);
-            const double sx = (double)g_game_viewport.w / (double)GB_BORDER_FULL_W;
-            const double sy = (double)g_game_viewport.h / (double)GB_BORDER_FULL_H;
-            int gb_x = (int)((g_game_viewport.x + GB_BORDER_INSET_X * sx) * dpr_x);
-            int gb_y = (int)((g_game_viewport.y + GB_BORDER_INSET_Y * sy) * dpr_y);
-            int gb_w = (int)((GB_SCREEN_WIDTH  * sx) * dpr_x);
-            int gb_h = (int)((GB_SCREEN_HEIGHT * sy) * dpr_y);
-            if (active_shader >= 0) {
-                gb_shader_pipeline_set_active(g_shader_pipeline, active_shader);
+    auto draw_lcd = [&]() {
+        if (g_shader_pipeline) {
+            const int active_shader = gb_shader_pipeline_active(g_shader_pipeline);
+            if (active_border) {
+                /* Border is always drawn with the passthrough "sharp" shader
+                 * — the user-selected effect applies to the game pixels
+                 * only, which is the visually-right thing for an LCD-style
+                 * filter. */
+                gb_shader_pipeline_set_active_by_name(g_shader_pipeline, "sharp");
+                gb_shader_pipeline_draw(g_shader_pipeline,
+                                        active_border,
+                                        GB_BORDER_FULL_W, GB_BORDER_FULL_H,
+                                        vp_x, vp_y, vp_w, vp_h,
+                                        draw_w, draw_h);
+                const double sx = (double)g_game_viewport.w / (double)GB_BORDER_FULL_W;
+                const double sy = (double)g_game_viewport.h / (double)GB_BORDER_FULL_H;
+                int gb_x = (int)((g_game_viewport.x + GB_BORDER_INSET_X * sx) * dpr_x);
+                int gb_y = (int)((g_game_viewport.y + GB_BORDER_INSET_Y * sy) * dpr_y);
+                int gb_w = (int)((GB_SCREEN_WIDTH  * sx) * dpr_x);
+                int gb_h = (int)((GB_SCREEN_HEIGHT * sy) * dpr_y);
+                if (active_shader >= 0) {
+                    gb_shader_pipeline_set_active(g_shader_pipeline, active_shader);
+                }
+                gb_shader_pipeline_draw(g_shader_pipeline,
+                                        g_game_tex,
+                                        GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT,
+                                        gb_x, gb_y, gb_w, gb_h,
+                                        draw_w, draw_h);
+            } else {
+                gb_shader_pipeline_draw(g_shader_pipeline,
+                                        g_game_tex,
+                                        GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT,
+                                        vp_x, vp_y, vp_w, vp_h,
+                                        draw_w, draw_h);
             }
-            gb_shader_pipeline_draw(g_shader_pipeline,
-                                    g_game_tex,
-                                    GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT,
-                                    gb_x, gb_y, gb_w, gb_h,
-                                    draw_w, draw_h);
-        } else {
-            gb_shader_pipeline_draw(g_shader_pipeline,
-                                    g_game_tex,
-                                    GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT,
-                                    vp_x, vp_y, vp_w, vp_h,
-                                    draw_w, draw_h);
         }
-    }
+    };
+    if (!presentation_covers) draw_lcd();
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame();
     ImGui::NewFrame();
+    const bool presented = g_presentation.frame &&
+        g_presentation.frame(g_registered_ctx, draw_w, draw_h, g_show_menu);
+    if (presentation_covers && !presented) {
+        glDisable(GL_DEPTH_TEST);
+        glDisable(GL_SCISSOR_TEST);
+        glViewport(0, 0, draw_w, draw_h);
+        upload_lcd();
+        draw_lcd();
+    }
     ImGuiIO& imgui_io = ImGui::GetIO();
     imgui_io.FontGlobalScale = settings_ui_scale_for_size(imgui_io.DisplaySize);
 
@@ -4385,6 +4428,7 @@ static void render_frame_internal(const uint32_t* framebuffer, bool count_guest_
     g_last_timing.compose_ms = sdl_now_ms() - compose_start_ms;
 
     double present_start_ms = sdl_now_ms();
+    if (g_presentation.before_swap) g_presentation.before_swap(draw_w, draw_h, g_show_menu);
     SDL_GL_SwapWindow(g_window);
     g_last_timing.present_ms = sdl_now_ms() - present_start_ms;
     g_last_timing.total_render_ms = sdl_now_ms() - total_render_start_ms;
@@ -4405,13 +4449,15 @@ void gb_platform_shutdown(void) {
     clear_controller_state();
     g_binding_capture_active = false;
     g_binding_capture_device = GB_CAPTURE_DEVICE_NONE;
-    
+
     if (ImGui::GetCurrentContext() != NULL) {
         ImGui_ImplOpenGL3_Shutdown();
         ImGui_ImplSDL2_Shutdown();
         ImGui::DestroyContext();
     }
 
+    if (g_gl_context && g_presentation.shutdown) g_presentation.shutdown();
+    g_external_joypad_dpad = 0xFF;
     /* Tear down GL-owned objects before the context goes away. */
     if (g_shader_pipeline) {
         gb_shader_pipeline_destroy(g_shader_pipeline);
@@ -4680,10 +4726,10 @@ static void sdl_audio_callback(void* userdata, Uint8* stream, int len) {
     (void)userdata;
     int16_t* out = (int16_t*)stream;
     int samples_needed = len / 4;  /* Stereo 16-bit = 4 bytes per sample */
-    
+
     uint32_t write_pos = g_audio_write_pos.load(std::memory_order_acquire);
     uint32_t read_pos = g_audio_read_pos.load(std::memory_order_relaxed);
-    
+
     for (int i = 0; i < samples_needed; i++) {
         if (read_pos != write_pos) {
             /* Have data - copy it */
@@ -4711,23 +4757,23 @@ static void sdl_audio_callback(void* userdata, Uint8* stream, int len) {
             audio_stats_underrun();
         }
     }
-    
+
     g_audio_read_pos.store(read_pos, std::memory_order_release);
 }
 
 static void on_audio_sample(GBContext* ctx, int16_t left, int16_t right) {
     (void)ctx;
     if (!audio_output_should_run()) return;
-    
+
     uint32_t write_pos = g_audio_write_pos.load(std::memory_order_relaxed);
     uint32_t next_write = (write_pos + 1) % AUDIO_RING_SIZE;
-    
+
     /* If buffer is full, drop this sample (prevents blocking) */
     if (next_write == g_audio_read_pos.load(std::memory_order_acquire)) {
         audio_stats_samples_dropped(1);
         return;  /* Drop sample */
     }
-    
+
     g_audio_ring[write_pos * 2] = left;
     g_audio_ring[write_pos * 2 + 1] = right;
     g_audio_write_pos.store(next_write, std::memory_order_release);
@@ -4781,7 +4827,7 @@ bool gb_platform_init(int scale) {
         g_last_frame_time = SDL_GetTicks();
         return true;
     }
-    
+
     fprintf(stderr, "[SDL] Initializing SDL...\n");
 #if defined(__ANDROID__)
     SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
@@ -4801,9 +4847,9 @@ bool gb_platform_init(int scale) {
     clear_controller_state();
     open_first_available_controller();
     refresh_audio_output_devices();
-    
+
     reopen_audio_output_device(false);
-    
+
     fprintf(stderr, "[SDL] Creating window...\n");
     /* Request a GLES 2.0 context — same code path on desktop Mesa
      * (which advertises a compatible profile) and embedded Mali / Adreno
@@ -4813,6 +4859,7 @@ bool gb_platform_init(int scale) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
+    if (g_presentation.gl_attributes) g_presentation.gl_attributes();
 
     g_window = SDL_CreateWindow(
         "GameBoy Recompiled",
@@ -4967,6 +5014,7 @@ static bool handle_runtime_event(const SDL_Event* event, GBContext* ctx) {
         return true;
     }
 
+    if (g_presentation.event && g_presentation.event(event, g_show_menu)) return true;
     const uint8_t joyp = ctx ? ctx->io[0x00] : 0xFF;
     const bool dpad_selected = !(joyp & 0x10);
     const bool buttons_selected = !(joyp & 0x20);
@@ -5187,7 +5235,7 @@ bool gb_platform_poll_events(GBContext* ctx) {
             }
         }
     }
-    
+
     /* Handle Automation Inputs */
     uint8_t previous_script_dpad = g_script_joypad_dpad;
     uint8_t previous_script_buttons = g_script_joypad_buttons;
@@ -5331,7 +5379,7 @@ void gb_platform_vsync(uint32_t frame_cycles) {
         next_frame_time = now;
         frame_remainder = 0;
     }
-    
+
     update_audio_stats_from_ring();
     audio_stats_tick(SDL_GetTicks64());
     g_last_timing.pacing_cycles = (uint32_t)gb_frame_cycles;
@@ -5464,6 +5512,7 @@ static bool load_savestate_slot(GBContext* ctx, int slot) {
     char filename[512];
     sdl_get_savestate_path(filename, sizeof(filename), ctx, slot);
     const bool success = gb_context_load_state_file(ctx, filename);
+    if (success && g_presentation.state_loaded) g_presentation.state_loaded(ctx);
     if (success) {
         reset_audio_output_buffer(true);
         g_last_guest_framebuffer_valid = false;
@@ -5496,13 +5545,13 @@ static bool sdl_load_battery_ram(GBContext* ctx, const char* rom_name, void* dat
     (void)ctx;
     char filename[512];
     sdl_get_save_path(filename, sizeof(filename), rom_name);
-    
+
     FILE* f = fopen(filename, "rb");
     if (!f) return false;
-    
+
     size_t read = fread(data, 1, size, f);
     fclose(f);
-    
+
     return read == size;
 }
 
@@ -5510,13 +5559,13 @@ static bool sdl_save_battery_ram(GBContext* ctx, const char* rom_name, const voi
     (void)ctx;
     char filename[512];
     sdl_get_save_path(filename, sizeof(filename), rom_name);
-    
+
     FILE* f = fopen(filename, "wb");
     if (!f) return false;
-    
+
     size_t written = fwrite(data, 1, size, f);
     fclose(f);
-    
+
     return written == size;
 }
 
@@ -5795,6 +5844,14 @@ void gb_platform_register_context(GBContext* ctx) {
 #else  /* !GB_HAS_SDL2 */
 
 /* Stub implementations when SDL2 is not available */
+bool gb_platform_set_presentation(const GBPresentationHooks* hooks) {
+    return hooks == NULL;
+}
+void gb_platform_set_external_dpad(uint8_t mask) { (void)mask; }
+void gb_platform_release_keys(const SDL_Scancode* keys, size_t count) {
+    (void)keys; (void)count;
+}
+
 
 bool gb_platform_init(int scale) {
     (void)scale;

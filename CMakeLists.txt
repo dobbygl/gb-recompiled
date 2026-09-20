@@ -47,6 +47,11 @@ else()
     message(STATUS "SDL2 not found - runtime will not be built")
 endif()
 
+option(GBRT_PRESENTATION_TESTS "Build SDL presentation API contract tests" OFF)
+if(GBRT_PRESENTATION_TESTS)
+    enable_testing()
+endif()
+
 # Subdirectories
 add_subdirectory(recompiler)
 
