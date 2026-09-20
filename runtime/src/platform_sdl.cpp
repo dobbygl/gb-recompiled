@@ -5821,14 +5821,13 @@ static void set_active_game_pref_int(const char* key, int value) {
 
 void gb_platform_register_context(GBContext* ctx) {
     g_registered_ctx = ctx;
-    GBPlatformCallbacks callbacks = {
-        .on_audio_sample = on_audio_sample,
-        .on_serial_byte = platform_on_serial_byte,
-        .load_battery_ram = sdl_load_battery_ram,
-        .save_battery_ram = sdl_save_battery_ram,
-        .load_rtc_data = sdl_load_rtc_data,
-        .save_rtc_data = sdl_save_rtc_data
-    };
+    GBPlatformCallbacks callbacks{};
+    callbacks.on_audio_sample = on_audio_sample;
+    callbacks.on_serial_byte = platform_on_serial_byte;
+    callbacks.load_battery_ram = sdl_load_battery_ram;
+    callbacks.save_battery_ram = sdl_save_battery_ram;
+    callbacks.load_rtc_data = sdl_load_rtc_data;
+    callbacks.save_rtc_data = sdl_save_rtc_data;
     gb_set_platform_callbacks(ctx, &callbacks);
 
     /* Spin up the printer once. The actual output path/prefix is
