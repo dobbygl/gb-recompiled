@@ -29,6 +29,23 @@ jobs:
       - name: Test
         run: ctest --test-dir build/portability --output-on-failure
 
+  linux-runtime:
+    name: Linux SDL presentation contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build libsdl2-dev libcurl4-openssl-dev libgl1-mesa-dev libgles2-mesa-dev
+      - name: Configure runtime and presentation contract
+        run: cmake -S . -B build/qa/linux -G Ninja -DGBRT_PRESENTATION_TESTS=ON
+      - name: Build SDL runtime and contract
+        run: cmake --build build/qa/linux --target gb_presentation_test --parallel 4
+      - name: Run presentation contract on software Mesa
+        run: ctest --test-dir build/qa/linux -R presentation_api --output-on-failure
+
   windows-runtime:
     name: Windows SDL and GLES runtime
     runs-on: windows-2022
@@ -45,7 +62,8 @@ jobs:
           ref: 5f96cd15fd745122cf27e0524606d6c1efc5fd07
           path: build/qa/vcpkg
       - name: Cache built dependencies
-        uses: actions/cache@v6
+        id: dependencies
+        uses: actions/cache/restore@v6
         with:
           path: build/qa/vcpkg-cache
           key: windows-runtime-vcpkg-5f96cd15-x64-${{ hashFiles('runtime/tests/windows/vcpkg.json') }}
@@ -75,3 +93,9 @@ jobs:
             build/qa/windows/Testing/Temporary/LastTest.log
             build/qa/windows/CMakeFiles/CMakeConfigureLog.yaml
             build/qa/vcpkg/buildtrees/*/*.log
+      - name: Retain compiled dependencies even if runtime validation fails
+        if: always() && steps.dependencies.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: build/qa/vcpkg-cache
+          key: windows-runtime-vcpkg-5f96cd15-x64-${{ hashFiles('runtime/tests/windows/vcpkg.json') }}

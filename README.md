@@ -86,7 +86,9 @@ cmake --build build --target gb_presentation_test
 ctest --test-dir build -R presentation_api --output-on-failure
 ```
 
-It requires SDL's offscreen driver and software Mesa. Failures to create the
+On Linux it uses SDL's offscreen driver and software Mesa; on Windows it uses
+the Windows driver and ANGLE (see Development below). Captures are taken before
+swap, since EGL may discard the back buffer afterwards. Failures to create the
 GL context fail the test explicitly, so missing rendering coverage cannot be
 reported as a pass.
 
