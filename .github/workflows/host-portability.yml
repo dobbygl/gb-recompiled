@@ -28,3 +28,50 @@ jobs:
         run: cmake --build build/portability
       - name: Test
         run: ctest --test-dir build/portability --output-on-failure
+
+  windows-runtime:
+    name: Windows SDL and GLES runtime
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      VCPKG_BINARY_SOURCES: "clear;files,${{ github.workspace }}/build/qa/vcpkg-cache,readwrite"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Checkout pinned dependency ports
+        uses: actions/checkout@v7
+        with:
+          repository: microsoft/vcpkg
+          ref: 5f96cd15fd745122cf27e0524606d6c1efc5fd07
+          path: build/qa/vcpkg
+      - name: Cache built dependencies
+        uses: actions/cache@v6
+        with:
+          path: build/qa/vcpkg-cache
+          key: windows-runtime-vcpkg-5f96cd15-x64-${{ hashFiles('runtime/tests/windows/vcpkg.json') }}
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: ./build/qa/vcpkg/bootstrap-vcpkg.bat -disableMetrics
+      - name: Configure runtime and presentation contract
+        shell: pwsh
+        run: >-
+          cmake -S runtime/tests/windows -B build/qa/windows -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/build/qa/vcpkg/scripts/buildsystems/vcpkg.cmake"
+          -DVCPKG_TARGET_TRIPLET=x64-windows
+      - name: Build complete SDL runtime
+        run: cmake --build build/qa/windows --parallel 4
+      - name: Run presentation contract with ANGLE
+        shell: pwsh
+        run: |
+          $env:PATH = "$pwd/build/qa/windows/vcpkg_installed/x64-windows/bin;$env:PATH"
+          ctest --test-dir build/qa/windows --output-on-failure
+      - name: Preserve diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-runtime-diagnostics
+          path: |
+            build/qa/windows/Testing/Temporary/LastTest.log
+            build/qa/windows/CMakeFiles/CMakeConfigureLog.yaml
+            build/qa/vcpkg/buildtrees/*/*.log

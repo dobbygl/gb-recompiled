@@ -47,6 +47,7 @@ std::vector<uint8_t> surface() {
 }
 }
 int main(int argc,char** argv) {
+    SDL_SetMainReady();
     GBConfig config{};config.model=GB_MODEL_DMG;config.speed_percent=100;
     GBContext* ctx=gb_context_create(&config);require(ctx!=nullptr,"context allocation");
     // Procedural cartridge, with RAM but no battery or commercial header data.

@@ -143,7 +143,11 @@ if(SDL2_FOUND)
     if(APPLE)
         target_link_libraries(gbrt PUBLIC "-framework OpenGL")
     elseif(WIN32)
-        target_link_libraries(gbrt PUBLIC opengl32)
+        # Direct GLES2 calls must use the same implementation SDL loads.
+        # ANGLE supplies both libGLESv2 and libEGL (e.g. through vcpkg).
+        find_package(unofficial-angle CONFIG REQUIRED)
+        target_link_libraries(gbrt PUBLIC
+            unofficial::angle::libGLESv2 unofficial::angle::libEGL)
     else()
         find_package(OpenGL QUIET)
         if(TARGET OpenGL::GL)
@@ -159,11 +163,18 @@ endif()
 if(GBRT_PRESENTATION_TESTS AND SDL2_FOUND)
     add_executable(gb_presentation_test tests/presentation_test.cpp)
     target_link_libraries(gb_presentation_test PRIVATE gbrt)
+    target_compile_definitions(gb_presentation_test PRIVATE SDL_MAIN_HANDLED)
     set_target_properties(gb_presentation_test PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/qa/presentation-tests")
     file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/qa/presentation-tests")
     add_test(NAME presentation_api COMMAND gb_presentation_test)
+    if(WIN32)
+        set(presentation_test_env "SDL_VIDEODRIVER=windows;SDL_AUDIODRIVER=dummy")
+    else()
+        set(presentation_test_env "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;LIBGL_ALWAYS_SOFTWARE=1")
+    endif()
     set_tests_properties(presentation_api PROPERTIES
+        TIMEOUT 60
         WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/qa/presentation-tests"
-        ENVIRONMENT "SDL_VIDEODRIVER=offscreen;SDL_AUDIODRIVER=dummy;LIBGL_ALWAYS_SOFTWARE=1")
+        ENVIRONMENT "${presentation_test_env}")
 endif()

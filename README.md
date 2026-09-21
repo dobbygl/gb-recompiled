@@ -857,9 +857,29 @@ cmake --build build/portability
 ctest --test-dir build/portability --output-on-failure
 ```
 
-`Host portability` runs these tests on Linux and Windows/MSVC. These are host
-filesystem/network checks, not proof of a complete SDL/GLES build. The Windows
-GLES2 backend still needs separate integration validation.
+`Host portability` runs these tests on Linux and Windows/MSVC. Its separate
+Windows SDL/GLES job builds the complete runtime and runs the presentation
+contract on ANGLE. Filesystem/network checks alone do not prove rendering works.
+
+On Windows, the SDL runtime links ANGLE's `libGLESv2` and `libEGL` instead of
+`opengl32`, and forces SDL to create a context through that same ES library.
+With a vcpkg checkout, reproduce the integration job without a ROM:
+
+```powershell
+cmake -S runtime/tests/windows -B build/windows -G Ninja `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake `
+  -DVCPKG_TARGET_TRIPLET=x64-windows
+cmake --build build/windows --parallel 4
+$env:PATH = "$pwd/build/windows/vcpkg_installed/x64-windows/bin;$env:PATH"
+ctest --test-dir build/windows --output-on-failure
+```
+
+The test manifest pins dependency ports. Other clients can install `sdl2`,
+`curl` and `angle` with vcpkg and use its CMake toolchain. Distribute the matching
+SDL2, EGL, GLES2 and dependent DLLs with Windows executables (or put them on
+`PATH`). The contract executable uses a normal C++ `main` and `SDL_SetMainReady`;
+clients using SDL's entry-point wrapper can continue to do so.
 
 
 ### Project Architecture

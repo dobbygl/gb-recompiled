@@ -4838,6 +4838,11 @@ bool gb_platform_init(int scale) {
         return true;
     }
 
+#if defined(_WIN32)
+    // GLES symbols are linked from ANGLE, so SDL must create an ANGLE context
+    // rather than an unrelated WGL ES-profile context.
+    SDL_SetHintWithPriority(SDL_HINT_OPENGL_ES_DRIVER, "1", SDL_HINT_OVERRIDE);
+#endif
     fprintf(stderr, "[SDL] Initializing SDL...\n");
 #if defined(__ANDROID__)
     SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");

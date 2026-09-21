@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.20)
+project(gbrt_windows_integration LANGUAGES C CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+enable_testing()
+set(GBRT_PRESENTATION_TESTS ON)
+add_subdirectory(../.. runtime)
