@@ -19,6 +19,7 @@
 
 #include <ctype.h>
 #include "gb_filesystem.h"
+#include "gb_string.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -152,9 +153,9 @@ static int parse_code_string(const char* codes_in, GBCheatOp* ops, int max_ops) 
     snprintf(tmp, sizeof(tmp), "%s", codes_in);
     int n = 0;
     char* save = NULL;
-    for (char* tok = strtok_r(tmp, "+", &save);
+    for (char* tok = gb_strtok_r(tmp, "+", &save);
          tok && n < max_ops;
-         tok = strtok_r(NULL, "+", &save)) {
+         tok = gb_strtok_r(NULL, "+", &save)) {
         /* Trim spaces. */
         while (*tok == ' ' || *tok == '\t') tok++;
         char* end = tok + strlen(tok);

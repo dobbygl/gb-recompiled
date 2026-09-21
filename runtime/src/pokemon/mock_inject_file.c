@@ -9,6 +9,7 @@
 
 #include <ctype.h>
 #include "gb_filesystem.h"
+#include "../gb_string.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -169,14 +170,14 @@ static void build_display(const GBContext* ctx,
             char* hash = strchr(val, '#');
             if (hash) { *hash = '\0';
                         while (hash > val && hash[-1] == ' ') *--hash = '\0'; }
-            if (strcasecmp(key, "species") == 0) {
+            if (gb_strcasecmp(key, "species") == 0) {
                 snprintf(species, sizeof(species), "%s", val);
-            } else if (strcasecmp(key, "level") == 0) {
+            } else if (gb_strcasecmp(key, "level") == 0) {
                 level = atoi(val);
-            } else if (strcasecmp(key, "shiny") == 0) {
-                shiny = (strcasecmp(val, "true") == 0 ||
-                         strcasecmp(val, "yes")  == 0 ||
-                         strcasecmp(val, "1")    == 0);
+            } else if (gb_strcasecmp(key, "shiny") == 0) {
+                shiny = (gb_strcasecmp(val, "true") == 0 ||
+                         gb_strcasecmp(val, "yes")  == 0 ||
+                         gb_strcasecmp(val, "1")    == 0);
             }
         }
         if (species[0] && level > 0) {
@@ -292,9 +293,9 @@ static void strip_inplace(char* s) {
 }
 
 static bool parse_bool(const char* v) {
-    return (strcasecmp(v, "true") == 0 ||
-            strcasecmp(v, "yes")  == 0 ||
-            strcasecmp(v, "1")    == 0);
+    return (gb_strcasecmp(v, "true") == 0 ||
+            gb_strcasecmp(v, "yes")  == 0 ||
+            gb_strcasecmp(v, "1")    == 0);
 }
 
 static bool parse_file(const char* path, ParsedMon* out) {
@@ -313,25 +314,25 @@ static bool parse_file(const char* path, ParsedMon* out) {
         strip_inplace(key);
         strip_inplace(val);
 
-        if (strcasecmp(key, "species") == 0) {
+        if (gb_strcasecmp(key, "species") == 0) {
             if (val[0] >= '0' && val[0] <= '9') {
                 out->species_dex = atoi(val);
             } else {
                 snprintf(out->species_name, sizeof(out->species_name),
                          "%s", val);
             }
-        } else if (strcasecmp(key, "level") == 0) {
+        } else if (gb_strcasecmp(key, "level") == 0) {
             out->level = atoi(val);
-        } else if (strcasecmp(key, "shiny") == 0) {
+        } else if (gb_strcasecmp(key, "shiny") == 0) {
             out->shiny = parse_bool(val) ? 1 : 0;
-        } else if (strcasecmp(key, "nickname") == 0) {
+        } else if (gb_strcasecmp(key, "nickname") == 0) {
             snprintf(out->nickname, sizeof(out->nickname), "%s", val);
-        } else if (strcasecmp(key, "ot_name") == 0) {
+        } else if (gb_strcasecmp(key, "ot_name") == 0) {
             snprintf(out->ot_name, sizeof(out->ot_name), "%s", val);
-        } else if (strcasecmp(key, "ot_id") == 0) {
+        } else if (gb_strcasecmp(key, "ot_id") == 0) {
             int v = atoi(val);
             if (v >= 0 && v <= 0xFFFF) out->ot_id = v;
-        } else if (strcasecmp(key, "moves") == 0) {
+        } else if (gb_strcasecmp(key, "moves") == 0) {
             /* Comma-separated up to 4 entries; each entry is either
              * a numeric move ID or a move name (e.g. "PSYCHIC").
              * Names are resolved at apply time against the active
@@ -364,7 +365,7 @@ static bool parse_file(const char* path, ParsedMon* out) {
                 }
                 idx++;
             }
-        } else if (strcasecmp(key, "dvs") == 0) {
+        } else if (gb_strcasecmp(key, "dvs") == 0) {
             /* Positional: atk,def,spd,spc each 0..15. An empty slot
              * (`dvs = 5,,,10`) means "leave the builder's roll for
              * this slot" -- the apply path then only overrides the
@@ -388,16 +389,16 @@ static bool parse_file(const char* path, ParsedMon* out) {
                 if (*p == ',') p++;
                 idx++;
             }
-        } else if (strcasecmp(key, "held_item") == 0) {
+        } else if (gb_strcasecmp(key, "held_item") == 0) {
             int v = atoi(val);
             if (v >= 0 && v <= 255) out->held_item = v;
-        } else if (strcasecmp(key, "happiness") == 0) {
+        } else if (gb_strcasecmp(key, "happiness") == 0) {
             int v = atoi(val);
             if (v >= 0 && v <= 255) out->happiness = v;
-        } else if (strcasecmp(key, "pokerus") == 0) {
+        } else if (gb_strcasecmp(key, "pokerus") == 0) {
             int v = atoi(val);
             if (v >= 0 && v <= 255) out->pokerus = v;
-        } else if (strcasecmp(key, "catch_rate") == 0) {
+        } else if (gb_strcasecmp(key, "catch_rate") == 0) {
             int v = atoi(val);
             if (v >= 1 && v <= 255) out->catch_rate = v;
         }

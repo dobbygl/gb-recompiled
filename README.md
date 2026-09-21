@@ -840,6 +840,10 @@ so runtime directory scans and directory creation do not require `dirent.h` on
 Windows. Narrow paths follow the host C library's filename encoding. POSIX
 creation retains mode 0755.
 
+Host text parsing uses the corresponding CRT case-insensitive comparison and
+reentrant tokenizer on Windows; independent token streams are tested alongside
+the filesystem layer.
+
 The link cable and LAN discovery retain their C APIs and wire formats, using
 C++17 threads and mutexes with POSIX sockets or Winsock. Socket handles retain
 the host's pointer width. Shutdown joins the receive worker before closing its
