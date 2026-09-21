@@ -12,6 +12,7 @@ struct GBDirectory {
     std::filesystem::directory_iterator iterator;
     std::string name;
     bool advance = false;
+    bool finished = false;
 };
 
 extern "C" GBDirectory* gb_directory_open(const char* path) {
@@ -27,20 +28,26 @@ extern "C" GBDirectory* gb_directory_open(const char* path) {
 }
 
 extern "C" const char* gb_directory_next(GBDirectory* directory) {
-    if (!directory) return nullptr;
+    if (!directory || directory->finished) return nullptr;
     try {
         auto& iterator = directory->iterator;
         if (iterator == std::filesystem::directory_iterator{}) return nullptr;
         if (directory->advance) {
             std::error_code error;
             iterator.increment(error);
-            if (error || iterator == std::filesystem::directory_iterator{}) return nullptr;
+            if (error || iterator == std::filesystem::directory_iterator{}) {
+                directory->finished = true;
+                return nullptr;
+            }
         }
         directory->name = iterator->path().filename().string();
         directory->advance = true;
         return directory->name.c_str();
     } catch (...) {
-        directory->iterator = {};
+        // Keep the iterator owned until close; further C calls must remain at EOF.
+        // Assigning an end iterator here also trips GCC 13's optimized
+        // libstdc++ directory_iterator move-assignment linkage.
+        directory->finished = true;
         return nullptr;
     }
 }

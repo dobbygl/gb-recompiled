@@ -97,9 +97,15 @@ int main(int argc, char **argv) {
     gb_platform_register_context(ctx);
     SDL_SetWindowSize(SDL_GL_GetCurrentWindow(), 480, 320);
     gb_platform_poll_events(ctx);
+    // ANGLE can resize its EGL surface at the first swap after the SDL resize.
+    // Compare stable pre-swap surfaces, not the old and new backing buffers.
+    gb_platform_render_frame(lcd.data());
+    gb_platform_poll_events(ctx);
     gb_platform_render_frame(lcd.data());
     auto baseline = captured;
     require(!baseline.empty(), "ordinary LCD surface");
+    gb_platform_render_frame(lcd.data());
+    require(captured == baseline, "ordinary LCD surface is stable after resize");
     if (argc == 2) {
         FILE *out = std::fopen(argv[1], "wb");
         require(out, "surface export");
@@ -155,6 +161,8 @@ int main(int argc, char **argv) {
                     lcd == original_lcd,
                 "every presentation preserves WRAM, VRAM, cartridge RAM and both framebuffers");
     };
+    render_checked();
+    gb_platform_poll_events(ctx);
     calls.clear();
     render_checked();
     require(calls == "BFC", "begin, draw, capture order");

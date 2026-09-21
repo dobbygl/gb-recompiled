@@ -23,7 +23,7 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
       - name: Configure C++17 host portability tests
-        run: cmake -S runtime/tests/portability -B build/portability -G Ninja
+        run: cmake -S runtime/tests/portability -B build/portability -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel
       - name: Build
         run: cmake --build build/portability
       - name: Test
