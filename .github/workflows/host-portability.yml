@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  filesystem:
-    name: Filesystem (${{ matrix.os }})
+  host:
+    name: Host filesystem and network (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
-      - name: Configure C++17 host filesystem tests
+      - name: Configure C++17 host portability tests
         run: cmake -S runtime/tests/portability -B build/portability -G Ninja
       - name: Build
         run: cmake --build build/portability

@@ -10,6 +10,8 @@ extern "C" {
 
 struct GBContext;
 
+/* All public calls belong to the platform main thread. */
+
 /* Open a TCP listener on `port` and accept one peer using BGB link protocol.
  * Spawns a background recv thread. Returns true on success. */
 bool gb_serial_link_start_listen(uint16_t port);

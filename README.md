@@ -836,7 +836,20 @@ python3 tools/compare_ground_truth.py roms/game.gb output/game --mgbdis /path/to
 Host filesystem operations use a C interface backed by C++17 `std::filesystem`,
 so runtime directory scans and directory creation do not require `dirent.h` on
 Windows. Narrow paths follow the host C library's filename encoding. POSIX
-creation retains mode 0755. The independent tests need no SDL, ROM, or network:
+creation retains mode 0755.
+
+The link cable and LAN discovery retain their C APIs and wire formats, using
+C++17 threads and mutexes with POSIX sockets or Winsock. Socket handles retain
+the host's pointer width. Shutdown joins the receive worker before closing its
+socket; waiting for a client or an incomplete packet can be cancelled, and a
+closed link can be started again. Public lifecycle calls belong to the platform
+main thread; discovery peer snapshots are thread-safe.
+
+The independent tests need no SDL or ROM. Network tests create local TCP/UDP
+peers (discovery also sends its normal LAN broadcasts); they verify BGB 1.4
+packet bytes, master/slave transfers, fragmented reads, reconnects, failure
+cleanup, cancellation, discovery validation, identity persistence and peer
+expiry. Run them with:
 
 ```bash
 cmake -S runtime/tests/portability -B build/portability -G Ninja
@@ -844,9 +857,9 @@ cmake --build build/portability
 ctest --test-dir build/portability --output-on-failure
 ```
 
-`Host portability` runs these tests on Linux and Windows/MSVC. This validates
-the filesystem layer only: the runtime's Winsock/thread integration and GLES2
-backend still need Windows validation before the full runtime is portable.
+`Host portability` runs these tests on Linux and Windows/MSVC. These are host
+filesystem/network checks, not proof of a complete SDL/GLES build. The Windows
+GLES2 backend still needs separate integration validation.
 
 
 ### Project Architecture

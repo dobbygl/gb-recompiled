@@ -9,7 +9,8 @@
  * pressing connect calls into serial_link's existing TCP-connect path.
  *
  * Discovery runs on a single background thread. The peer list is
- * mutex-guarded; everything else is owned by the main thread.
+ * mutex-guarded, as are identity/config snapshots used for broadcasts. Public
+ * lifecycle and settings calls belong to the main thread.
  */
 #ifndef GBRT_NETWORK_DISCOVERY_H
 #define GBRT_NETWORK_DISCOVERY_H

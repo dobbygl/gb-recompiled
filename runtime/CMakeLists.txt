@@ -9,8 +9,8 @@ add_library(gbrt STATIC
     src/audio.c
     src/audio_stats.c
     src/platform_sdl.cpp
-    src/serial_link.c
-    src/network_discovery.c
+    src/serial_link.cpp
+    src/network_discovery.cpp
     src/sgb.c
     src/ir.c
     src/pokemon/mock_ir.c
@@ -29,9 +29,12 @@ add_library(gbrt STATIC
     src/gb_sha256.c
 )
 
-# pthread for the BGB link recv thread
+# C++ host threads for the link and discovery workers
 find_package(Threads REQUIRED)
 target_link_libraries(gbrt PUBLIC Threads::Threads)
+if(WIN32)
+    target_link_libraries(gbrt PUBLIC ws2_32)
+endif()
 
 # libcurl for the rendezvous-server HTTP client
 find_package(CURL REQUIRED)

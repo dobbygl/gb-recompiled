@@ -199,8 +199,9 @@ Update `AGENTS.md` too if the change affects how future agents should work in th
 
 ## Host portability checks
 
-When changing `gb_filesystem.h`, `gb_filesystem.cpp`, or their C callers, also
+When changing the filesystem or network modules (including their C callers), also
 configure `runtime/tests/portability` with CMake + Ninja and run its CTest suite.
 This standalone C++17 test project runs on Linux and Windows without SDL or a
-ROM. It complements the generated-project sync workflow; passing it alone does
-not prove that networking or the GLES runtime builds on Windows.
+ROM. It includes loopback link/discovery tests and the real discovery expiry
+interval. It complements the generated-project sync workflow; passing it alone
+does not prove that the SDL/GLES runtime builds on Windows.
